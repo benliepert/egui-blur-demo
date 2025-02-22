@@ -21,7 +21,7 @@ fn main() {
 fn setup_tracing() -> Option<tracing_setup::tracing_appender::non_blocking::WorkerGuard> {
     let config = tracing_setup::TracingConfig {
         tracing_mode: tracing_setup::TracingMode::Console,
-        env_filter: Some("egui_blur_demo=trace".to_string()),
+        env_filter: Some("egui_blur_demo=warn".to_string()),
         json: false,                   // we don't want json formatting
         log_dir: "./logs".to_string(), // logs will be created here
         ansi_file: false,              // we don't want ANSI colors in the file logs

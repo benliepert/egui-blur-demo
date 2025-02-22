@@ -276,29 +276,22 @@ impl<'a> Program<'a> {
             );
         }
 
+        // you need to do this stuff AFTER the render pass above renders the UI
+        // to the ivew
         if let Some(callback) = callback {
-            // we added a callback to do post-processing
-            // run its second pass method here once we know we have all the UI drawn and can control the render pass
-            callback.first_pass(
-                &mut encoder,
-                self.egui_wgpu_renderer
-                    .callback_resources
-                    .get::<WindowTexture>()
-                    .unwrap(),
-            );
-            callback.second_pass_old(
-                &mut encoder,
-                self.egui_wgpu_renderer
-                    .callback_resources
-                    .get::<WindowTexture>()
-                    .unwrap(),
-            );
-        } else {
-            panic!("No callback found!");
+            // post-processing requested since the callback exists
+            let wt = self
+                .egui_wgpu_renderer
+                .callback_resources
+                .get::<WindowTexture>()
+                .unwrap();
+            callback.first_pass(&mut encoder, wt);
+            callback.second_pass_old(&mut encoder, wt);
         }
 
         let output = self.surface.get_current_texture(&self.render_ctx)?;
 
+        // finally, render everything to the screen
         {
             let surface_view = output
                 .texture

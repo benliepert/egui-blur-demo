@@ -146,6 +146,12 @@ pub fn ui_main(
 ) -> Option<CallbackTraitImplementer> {
     trace!("Drawing main UI");
 
+    egui::CentralPanel::default().show(&ctx, |ui| {
+        ui.heading("This is a test");
+        ui.image(image);
+        let _ = ui.button("Test");
+    });
+
     // windows are on the middle layer
     let layer = LayerId::new(Order::Middle, Id::from("test_window_bg"));
 
@@ -164,23 +170,19 @@ pub fn ui_main(
         .unwrap()
         .response;
 
-    egui::CentralPanel::default().show(&ctx, |ui| {
-        ui.heading("This is a test");
-        ui.image(image);
-        let _ = ui.button("Test");
-    });
-
-    {
-        let painter = ctx.layer_painter(layer);
-        let rect = blur_window.rect;
-        if rect.size().length() > 0.0 {
-            let callback = CallbackTraitImplementer { window_rect: rect };
-            painter.add(egui_wgpu::Callback::new_paint_callback(
-                rect,
-                callback.clone(),
-            ));
-            return Some(callback);
-        }
+    // in the original implementation, the callback was added to the painter before the blur window
+    // which allowed it to be drawn under it. However, I don't know of a clean way to do this without
+    // storing the rect and being off by one frame the first time and if it's moved/resized.
+    let painter = ctx.layer_painter(layer);
+    let rect = blur_window.rect;
+    if rect.size().length() > 0.0 {
+        let callback = CallbackTraitImplementer { window_rect: rect };
+        painter.add(egui_wgpu::Callback::new_paint_callback(
+            rect,
+            callback.clone(),
+        ));
+        Some(callback)
+    } else {
         None
     }
 }
