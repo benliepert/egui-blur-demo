@@ -278,16 +278,16 @@ impl<'a> Program<'a> {
 
         // you need to do this stuff AFTER the render pass above renders the UI
         // to the ivew
-        if let Some(callback) = callback {
-            // post-processing requested since the callback exists
-            let wt = self
-                .egui_wgpu_renderer
-                .callback_resources
-                .get::<WindowTexture>()
-                .unwrap();
-            callback.first_pass(&mut encoder, wt);
-            callback.second_pass_old(&mut encoder, wt);
-        }
+        // if let Some(callback) = callback {
+        //     // post-processing requested since the callback exists
+        //     let wt = self
+        //         .egui_wgpu_renderer
+        //         .callback_resources
+        //         .get::<WindowTexture>()
+        //         .unwrap();
+        //     callback.first_pass(&mut encoder, wt);
+        //     callback.second_pass_old(&mut encoder, wt);
+        // }
 
         let output = self.surface.get_current_texture(&self.render_ctx)?;
 

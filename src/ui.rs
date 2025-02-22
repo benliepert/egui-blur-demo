@@ -114,7 +114,7 @@ impl egui_wgpu::CallbackTrait for CallbackTraitImplementer {
         // with the latest blur window size
         wt.pipeline_registry().set_rect(self.window_rect, queue);
 
-        // self.first_pass(egui_encoder, wt);
+        self.first_pass(egui_encoder, wt);
         // self.second_pass_old(egui_encoder, wt);
         // self.second_pass(egui_encoder, wt);
 
@@ -127,15 +127,15 @@ impl egui_wgpu::CallbackTrait for CallbackTraitImplementer {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        // let wt = resources
-        //     .get::<WindowTexture>()
-        //     .expect("WindowTexture resource not found");
+        let wt = resources
+            .get::<WindowTexture>()
+            .expect("WindowTexture resource not found");
 
-        // trace!("paint() callback");
+        trace!("paint() callback");
 
-        // // TODO: This should be using a color attachment to wt.view()
-        // // but I can't change the render pass to use that since it's already been started...
-        // self.second_pass(render_pass, wt);
+        // TODO: This should be using a color attachment to wt.view()
+        // but I can't change the render pass to use that since it's already been started...
+        self.second_pass(render_pass, wt);
     }
 }
 
@@ -154,6 +154,8 @@ pub fn ui_main(
 
     // windows are on the middle layer
     let layer = LayerId::new(Order::Middle, Id::from("test_window_bg"));
+    let painter = ctx.layer_painter(layer);
+    let shape_idx = painter.add(Shape::Noop);
 
     let blur_window = egui::Window::new("Test")
         .id(layer.id)
@@ -173,14 +175,20 @@ pub fn ui_main(
     // in the original implementation, the callback was added to the painter before the blur window
     // which allowed it to be drawn under it. However, I don't know of a clean way to do this without
     // storing the rect and being off by one frame the first time and if it's moved/resized.
-    let painter = ctx.layer_painter(layer);
     let rect = blur_window.rect;
     if rect.size().length() > 0.0 {
         let callback = CallbackTraitImplementer { window_rect: rect };
-        painter.add(egui_wgpu::Callback::new_paint_callback(
-            rect,
-            callback.clone(),
-        ));
+        painter.set(
+            shape_idx,
+            Shape::Callback(egui_wgpu::Callback::new_paint_callback(
+                rect,
+                callback.clone(),
+            )),
+        );
+        // painter.add(egui_wgpu::Callback::new_paint_callback(
+        //     rect,
+        //     callback.clone(),
+        // ));
         Some(callback)
     } else {
         None
