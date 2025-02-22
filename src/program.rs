@@ -213,10 +213,10 @@ impl<'a> Program<'a> {
 
         let raw_input = self.egui_winit_bridge.take_egui_input(&self.window);
 
-        let full_output = self
-            .egui_winit_bridge
-            .egui_ctx()
-            .run(raw_input, |ctx| crate::ui::ui_main(ctx, &self.ferris_img));
+        let mut callback = None;
+        let full_output = self.egui_winit_bridge.egui_ctx().run(raw_input, |ctx| {
+            callback = crate::ui::ui_main(ctx, &self.ferris_img);
+        });
 
         // TODO: is this correct?
         let pixels_per_point = self.surface.get_scale_fac() as f32;
@@ -260,7 +260,7 @@ impl<'a> Program<'a> {
                     view: &wt.view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load: wgpu::LoadOp::Load, // load what's on the view
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -274,6 +274,27 @@ impl<'a> Program<'a> {
                 &paint_jobs,
                 &screen_descriptor,
             );
+        }
+
+        if let Some(callback) = callback {
+            // we added a callback to do post-processing
+            // run its second pass method here once we know we have all the UI drawn and can control the render pass
+            callback.first_pass(
+                &mut encoder,
+                self.egui_wgpu_renderer
+                    .callback_resources
+                    .get::<WindowTexture>()
+                    .unwrap(),
+            );
+            callback.second_pass_old(
+                &mut encoder,
+                self.egui_wgpu_renderer
+                    .callback_resources
+                    .get::<WindowTexture>()
+                    .unwrap(),
+            );
+        } else {
+            panic!("No callback found!");
         }
 
         let output = self.surface.get_current_texture(&self.render_ctx)?;

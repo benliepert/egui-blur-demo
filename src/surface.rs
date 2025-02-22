@@ -12,7 +12,7 @@ pub struct SurfaceRenderer<'a> {
     scale_fac: f64,
 }
 
-impl<'a> SurfaceRenderer<'a> {
+impl SurfaceRenderer<'_> {
     // the lifetime of surface is tied to the render context
     // pub fn from_window(window: &'a winit::window::Window, ctx: &'a RenderContext) -> Self {
     pub fn from_window(window: Arc<winit::window::Window>, ctx: Arc<RenderContext>) -> Self {

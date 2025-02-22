@@ -6,26 +6,23 @@ use tracing_setup::tracing::{self, instrument};
 
 use crate::window_texture::WindowTexture;
 
-struct CallbackTraitImplementer {
+#[derive(Clone, Copy)]
+pub struct CallbackTraitImplementer {
     // the blur window rect, which will be used in the callback funcs
     window_rect: Rect,
 }
 
 impl CallbackTraitImplementer {
     #[instrument(level = "trace", name = "blur pass", skip(self, encoder, wt))]
-    fn first_pass(&self, encoder: &mut wgpu::CommandEncoder, wt: &WindowTexture) {
+    pub fn first_pass(&self, encoder: &mut wgpu::CommandEncoder, wt: &WindowTexture) {
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: wt.back_view(),
                 resolve_target: None,
                 ops: wgpu::Operations {
                     // clear the offscreen texture before writing the new blurred content
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 0.0,
-                    }),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::default()),
+                    // store the blurred output in the back_view
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -46,8 +43,8 @@ impl CallbackTraitImplementer {
         render_pass.draw(0..4, 0..1);
     }
 
-    #[instrument(level = "trace", name = "copy pass", skip(self, encoder, wt))]
-    fn second_pass_old(&self, encoder: &mut wgpu::CommandEncoder, wt: &WindowTexture) {
+    #[instrument(level = "trace", name = "copy pass full", skip(self, encoder, wt))]
+    pub fn second_pass_old(&self, encoder: &mut wgpu::CommandEncoder, wt: &WindowTexture) {
         /* Operating on render_pass directly here results in lifetime issues since it's borrowing part of the WindowTexture,
             which comes from resources. ie
             render_pass.begin_new_render_pass(...); // expects wt resource to live for 'static, since that's render_pass's lifetime
@@ -57,7 +54,7 @@ impl CallbackTraitImplementer {
         */
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: wt.view(),
+                view: wt.view(), // this must hold the app output - why?
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
@@ -77,7 +74,11 @@ impl CallbackTraitImplementer {
         render_pass.draw(0..4, 0..1);
     }
 
-    #[instrument(level = "trace", name = "copy pass", skip(self, render_pass, wt))]
+    #[instrument(
+        level = "trace",
+        name = "copy pass partial",
+        skip(self, render_pass, wt)
+    )]
     fn second_pass(&self, render_pass: &mut wgpu::RenderPass<'static>, wt: &WindowTexture) {
         trace!("Pass started");
 
@@ -113,7 +114,7 @@ impl egui_wgpu::CallbackTrait for CallbackTraitImplementer {
         // with the latest blur window size
         wt.pipeline_registry().set_rect(self.window_rect, queue);
 
-        self.first_pass(egui_encoder, wt);
+        // self.first_pass(egui_encoder, wt);
         // self.second_pass_old(egui_encoder, wt);
         // self.second_pass(egui_encoder, wt);
 
@@ -126,19 +127,23 @@ impl egui_wgpu::CallbackTrait for CallbackTraitImplementer {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
-        let wt = resources
-            .get::<WindowTexture>()
-            .expect("WindowTexture resource not found");
+        // let wt = resources
+        //     .get::<WindowTexture>()
+        //     .expect("WindowTexture resource not found");
 
-        trace!("paint() callback");
+        // trace!("paint() callback");
 
-        // TODO: This should be using a color attachment to wt.view()
-        // but I can't change the render pass to use that since it's already been started...
-        self.second_pass(render_pass, wt);
+        // // TODO: This should be using a color attachment to wt.view()
+        // // but I can't change the render pass to use that since it's already been started...
+        // self.second_pass(render_pass, wt);
     }
 }
 
-pub fn ui_main(ctx: &egui::Context, image: &egui::TextureHandle) {
+// Janky: passing in rect so we can get the blur window size elsewhere...
+pub fn ui_main(
+    ctx: &egui::Context,
+    image: &egui::TextureHandle,
+) -> Option<CallbackTraitImplementer> {
     trace!("Drawing main UI");
 
     // windows are on the middle layer
@@ -169,12 +174,13 @@ pub fn ui_main(ctx: &egui::Context, image: &egui::TextureHandle) {
         let painter = ctx.layer_painter(layer);
         let rect = blur_window.rect;
         if rect.size().length() > 0.0 {
+            let callback = CallbackTraitImplementer { window_rect: rect };
             painter.add(egui_wgpu::Callback::new_paint_callback(
                 rect,
-                CallbackTraitImplementer {
-                    window_rect: blur_window.rect,
-                },
+                callback.clone(),
             ));
+            return Some(callback);
         }
+        None
     }
 }
