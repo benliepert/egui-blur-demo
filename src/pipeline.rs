@@ -11,6 +11,9 @@ use crate::{context::RenderContext, surface::SurfaceRenderer};
 const VS_MAIN: &str = "vs_main";
 const FS_MAIN: &str = "fs_main";
 
+/// Holds information related to the shaders we use
+///
+/// Like render pipelines, bind groups, and buffers
 pub struct WindowPipelineRegistry {
     pub copy_pipeline: wgpu::RenderPipeline,
     pub copy_bind_group: wgpu::BindGroup,
@@ -25,6 +28,8 @@ pub struct WindowPipelineRegistry {
 }
 
 impl WindowPipelineRegistry {
+    // I believe this updates the window dimensions in the shader shared buffer
+    // that way you can dynamically resize the window and the shader will know to adjust
     pub fn set_rect(&self, rect: egui::epaint::Rect, queue: &wgpu::Queue) {
         queue.write_buffer(
             &self.rect_uniform,
@@ -111,17 +116,19 @@ impl PipelineRegistry {
             layout: Some(&copy_render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: shader,
-                entry_point: VS_MAIN,
+                entry_point: Some(VS_MAIN),
                 buffers: &[],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: shader,
-                entry_point: FS_MAIN,
+                entry_point: Some(FS_MAIN),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface.format(),
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -139,6 +146,7 @@ impl PipelineRegistry {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         return (copy_pipeline, copy_bind_group);
@@ -253,17 +261,19 @@ impl PipelineRegistry {
             layout: Some(&blur_rect_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: blur_rect_shader,
-                entry_point: VS_MAIN,
+                entry_point: Some(VS_MAIN),
                 buffers: &[],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: blur_rect_shader,
-                entry_point: FS_MAIN,
+                entry_point: Some(FS_MAIN),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface.format(),
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -281,6 +291,7 @@ impl PipelineRegistry {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         WindowPipelineRegistry {

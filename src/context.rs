@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use winit::dpi::PhysicalSize;
 
 pub struct RenderContext {
@@ -12,9 +14,9 @@ pub struct RenderContext {
 
 impl RenderContext {
     pub async fn new() -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            dx12_shader_compiler: Default::default(),
+            ..Default::default() // TODO: is this OK?
         });
 
         let adapter = instance
@@ -29,9 +31,8 @@ impl RenderContext {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
                     label: None,
+                    ..Default::default() // TOOD: is this OK?
                 },
                 None,
             )
@@ -55,14 +56,18 @@ impl RenderContext {
     }
 
     pub(super) fn create_window_surface<
-        W: raw_window_handle::HasRawWindowHandle + raw_window_handle::HasRawDisplayHandle,
+        'window,
+        // W: raw_window_handle::HasWindowHandle
+        //     + raw_window_handle::HasDisplayHandle
+        //     + std::marker::Sync + std::marker::Send,
     >(
         &self,
-        window: &W,
+        window: Arc<winit::window::Window>,
+        // window: &'a W,
         size: PhysicalSize<u32>,
         adapter: &wgpu::Adapter,
-    ) -> (wgpu::Surface, wgpu::SurfaceConfiguration) {
-        let surface = unsafe { self.instance.create_surface(window) }.unwrap();
+    ) -> (wgpu::Surface<'window>, wgpu::SurfaceConfiguration) {
+        let surface = self.instance.create_surface(Arc::clone(&window)).unwrap();
 
         let surface_caps = surface.get_capabilities(&adapter);
 
@@ -82,6 +87,7 @@ impl RenderContext {
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: 1, // TODO: seems fine to me
         };
 
         (surface, config)

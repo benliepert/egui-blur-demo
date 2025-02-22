@@ -1,17 +1,21 @@
+use std::sync::Arc;
+
 use crate::context::RenderContext;
 
 pub(crate) type SurfaceError = wgpu::SurfaceError;
 
-pub struct SurfaceRenderer {
-    surface: wgpu::Surface,
+pub struct SurfaceRenderer<'a> {
+    surface: wgpu::Surface<'a>,
     config: wgpu::SurfaceConfiguration,
 
     size: winit::dpi::PhysicalSize<u32>,
     scale_fac: f64,
 }
 
-impl SurfaceRenderer {
-    pub fn from_window(window: &winit::window::Window, ctx: &RenderContext) -> Self {
+impl<'a> SurfaceRenderer<'a> {
+    // the lifetime of surface is tied to the render context
+    // pub fn from_window(window: &'a winit::window::Window, ctx: &'a RenderContext) -> Self {
+    pub fn from_window(window: Arc<winit::window::Window>, ctx: Arc<RenderContext>) -> Self {
         let size = window.inner_size();
         let scale_fac = window.scale_factor();
 
@@ -80,8 +84,8 @@ impl SurfaceRenderer {
         self.size
     }
 
-    pub fn screen_descriptor(&self) -> egui_wgpu::renderer::ScreenDescriptor {
-        egui_wgpu::renderer::ScreenDescriptor {
+    pub fn screen_descriptor(&self) -> egui_wgpu::ScreenDescriptor {
+        egui_wgpu::ScreenDescriptor {
             pixels_per_point: self.scale_fac as f32,
             size_in_pixels: self.size.into(),
         }

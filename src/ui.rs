@@ -1,20 +1,148 @@
-use std::sync::Arc;
-
 use egui::{epaint::Shadow, *};
-
-pub use util::*;
+use tracing_setup::tracing::{trace, warn};
 use wgpu::RenderPassDescriptor;
+// need to include self since the instrument macro expands to refer to it
+use tracing_setup::tracing::{self, instrument};
 
-use crate::{pipeline::WindowPipelineRegistry, util::NewRenderPass, window_texture::WindowTexture};
+use crate::window_texture::WindowTexture;
 
-pub fn ui_main<'a>(ctx: &egui::Context, image: &egui::TextureHandle) {
-    egui::CentralPanel::default().show(&ctx, |ui| {
-        ui.image(image, image.size_vec2());
-    });
+struct CallbackTraitImplementer {
+    // the blur window rect, which will be used in the callback funcs
+    window_rect: Rect,
+}
 
+impl CallbackTraitImplementer {
+    #[instrument(level = "trace", name = "blur pass", skip(self, encoder, wt))]
+    fn first_pass(&self, encoder: &mut wgpu::CommandEncoder, wt: &WindowTexture) {
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: wt.back_view(),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    // clear the offscreen texture before writing the new blurred content
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 0.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        trace!("Pass started");
+
+        let rect = self.window_rect;
+        // NOTE: the prepare function ensured the uniform buffer that our shader uses is up to date
+        let min = (rect.min.to_vec2() * wt.pixels_per_point() as f32).round();
+        let max = (rect.max.to_vec2() * wt.pixels_per_point() as f32).round();
+
+        render_pass.set_viewport(min.x, min.y, max.x - min.x, max.y - min.y, 0.0, 1.0);
+
+        let reg = wt.pipeline_registry();
+        render_pass.set_pipeline(&reg.blur_rect_pipeline);
+        render_pass.set_bind_group(0, &reg.blur_rect_bind_group, &[]);
+        render_pass.draw(0..4, 0..1);
+    }
+
+    #[instrument(level = "trace", name = "copy pass", skip(self, encoder, wt))]
+    fn second_pass_old(&self, encoder: &mut wgpu::CommandEncoder, wt: &WindowTexture) {
+        /* Operating on render_pass directly here results in lifetime issues since it's borrowing part of the WindowTexture,
+            which comes from resources. ie
+            render_pass.begin_new_render_pass(...); // expects wt resource to live for 'static, since that's render_pass's lifetime
+
+            Using the encoder to start a new render pass results in the parameters getting moved/copied before this function
+            completes, so there's no lifetime issues.
+        */
+        let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: wt.view(),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        trace!("Pass started");
+
+        let size = wt.physical_size();
+        render_pass.set_viewport(0.0, 0.0, size.width as f32, size.height as f32, 0.0, 1.0);
+
+        let reg = wt.pipeline_registry();
+        render_pass.set_pipeline(&reg.copy_back_pipeline);
+        render_pass.set_bind_group(0, &reg.copy_back_bind_group, &[]);
+        render_pass.draw(0..4, 0..1);
+    }
+
+    #[instrument(level = "trace", name = "copy pass", skip(self, render_pass, wt))]
+    fn second_pass(&self, render_pass: &mut wgpu::RenderPass<'static>, wt: &WindowTexture) {
+        trace!("Pass started");
+
+        let size = wt.physical_size();
+        render_pass.set_viewport(0.0, 0.0, size.width as f32, size.height as f32, 0.0, 1.0);
+
+        let reg = wt.pipeline_registry();
+        render_pass.set_pipeline(&reg.copy_back_pipeline);
+        render_pass.set_bind_group(0, &reg.copy_back_bind_group, &[]);
+        render_pass.draw(0..4, 0..1);
+    }
+}
+
+/*
+Ideas: try doing everything in prepare. and do nothing in paint
+*/
+
+impl egui_wgpu::CallbackTrait for CallbackTraitImplementer {
+    fn prepare(
+        &self,
+        _device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_descriptor: &egui_wgpu::ScreenDescriptor,
+        egui_encoder: &mut wgpu::CommandEncoder,
+        resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        trace!("prepare() callback");
+        let wt = resources
+            .get::<WindowTexture>()
+            .expect("WindowTexture resource not found");
+
+        // this ensures that the uniform buffer our shader uses is up to date
+        // with the latest blur window size
+        wt.pipeline_registry().set_rect(self.window_rect, queue);
+
+        self.first_pass(egui_encoder, wt);
+        // self.second_pass_old(egui_encoder, wt);
+        // self.second_pass(egui_encoder, wt);
+
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        resources: &egui_wgpu::CallbackResources,
+    ) {
+        let wt = resources
+            .get::<WindowTexture>()
+            .expect("WindowTexture resource not found");
+
+        trace!("paint() callback");
+
+        // TODO: This should be using a color attachment to wt.view()
+        // but I can't change the render pass to use that since it's already been started...
+        self.second_pass(render_pass, wt);
+    }
+}
+
+pub fn ui_main(ctx: &egui::Context, image: &egui::TextureHandle) {
+    trace!("Drawing main UI");
+
+    // windows are on the middle layer
     let layer = LayerId::new(Order::Middle, Id::from("test_window_bg"));
-    let painter = ctx.layer_painter(layer);
-    let shape_idx = painter.add(Shape::Noop);
 
     let blur_window = egui::Window::new("Test")
         .id(layer.id)
@@ -31,106 +159,22 @@ pub fn ui_main<'a>(ctx: &egui::Context, image: &egui::TextureHandle) {
         .unwrap()
         .response;
 
+    egui::CentralPanel::default().show(&ctx, |ui| {
+        ui.heading("This is a test");
+        ui.image(image);
+        let _ = ui.button("Test");
+    });
+
     {
+        let painter = ctx.layer_painter(layer);
         let rect = blur_window.rect;
-
         if rect.size().length() > 0.0 {
-            painter.set(
-                shape_idx,
-                Shape::Callback(PaintCallback {
-                    rect,
-                    callback: Arc::new(
-                        egui_wgpu::CallbackFn::new()
-                            .prepare(move |_device, queue, _encoder, resources| {
-                                let wt = resources.get::<WindowTexture>().unwrap();
-                                wt.pipeline_registry().set_rect(blur_window.rect, queue);
-
-                                vec![]
-                            })
-                            .paint(move |_info, render_pass, resources| {
-                                let wt = resources.get::<WindowTexture>().unwrap();
-
-                                let size = wt.physical_size();
-
-                                let WindowPipelineRegistry {
-                                    copy_back_bind_group,
-                                    copy_back_pipeline,
-                                    blur_rect_bind_group,
-                                    blur_rect_pipeline,
-                                    ..
-                                } = wt.pipeline_registry();
-
-                                // first pass
-                                *render_pass = render_pass.encoder().begin_render_pass(
-                                    &RenderPassDescriptor {
-                                        label: None,
-                                        color_attachments: &[Some(
-                                            wgpu::RenderPassColorAttachment {
-                                                view: wt.back_view(),
-                                                resolve_target: None,
-                                                ops: wgpu::Operations {
-                                                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                                                        r: 0.0,
-                                                        g: 0.0,
-                                                        b: 0.0,
-                                                        a: 0.0,
-                                                    }),
-                                                    store: true,
-                                                },
-                                            },
-                                        )],
-                                        depth_stencil_attachment: None,
-                                    },
-                                );
-
-                                let min =
-                                    (rect.min.to_vec2() * wt.pixels_per_point() as f32).round();
-                                let max =
-                                    (rect.max.to_vec2() * wt.pixels_per_point() as f32).round();
-
-                                render_pass.set_viewport(
-                                    min.x,
-                                    min.y,
-                                    max.x - min.x,
-                                    max.y - min.y,
-                                    0.0,
-                                    1.0,
-                                );
-
-                                render_pass.set_pipeline(blur_rect_pipeline);
-                                render_pass.set_bind_group(0, blur_rect_bind_group, &[]);
-                                render_pass.draw(0..4, 0..1);
-
-                                // second pass
-                                render_pass.begin_new_render_pass(&RenderPassDescriptor {
-                                    label: None,
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: wt.view(),
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: true,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: None,
-                                });
-
-                                render_pass.set_viewport(
-                                    0.0,
-                                    0.0,
-                                    size.width as f32,
-                                    size.height as f32,
-                                    0.0,
-                                    1.0,
-                                );
-
-                                render_pass.set_pipeline(copy_back_pipeline);
-                                render_pass.set_bind_group(0, copy_back_bind_group, &[]);
-                                render_pass.draw(0..4, 0..1);
-                            }),
-                    ),
-                }),
-            );
+            painter.add(egui_wgpu::Callback::new_paint_callback(
+                rect,
+                CallbackTraitImplementer {
+                    window_rect: blur_window.rect,
+                },
+            ));
         }
     }
 }

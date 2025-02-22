@@ -12,15 +12,16 @@ struct RenderPassExposed<'a> {
 
 pub trait NewRenderPass<'a> {
     fn encoder(&mut self) -> &'a mut wgpu::CommandEncoder;
-    fn begin_new_render_pass(&mut self, descriptor: &wgpu::RenderPassDescriptor<'a, '_>);
+    fn begin_new_render_pass(&mut self, descriptor: &wgpu::RenderPassDescriptor<'a>);
 }
 
 impl<'a> NewRenderPass<'a> for wgpu::RenderPass<'a> {
-    fn begin_new_render_pass(&mut self, descriptor: &wgpu::RenderPassDescriptor<'a, '_>) {
+    fn begin_new_render_pass(&mut self, descriptor: &wgpu::RenderPassDescriptor<'a>) {
         *self = self.encoder().begin_render_pass(descriptor);
     }
 
     fn encoder(&mut self) -> &'a mut wgpu::CommandEncoder {
+        todo!("This is almost certainly broken if wgpu::RenderPass changed...");
         unsafe { std::mem::transmute::<&mut wgpu::RenderPass, &mut RenderPassExposed>(self).parent }
     }
 }

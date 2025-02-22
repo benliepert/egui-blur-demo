@@ -6,19 +6,17 @@ use crate::{
     surface::SurfaceRenderer,
 };
 pub struct WindowTexture {
-    texture: wgpu::Texture,
-    back_texture: wgpu::Texture,
-
+    // texture: wgpu::Texture,
+    // back_texture: wgpu::Texture,
     texture_view: wgpu::TextureView,
     back_texture_view: wgpu::TextureView,
 
-    sampler: wgpu::Sampler,
-
+    // sampler: wgpu::Sampler,
     pixels_per_point: f64,
     size: PhysicalSize<u32>,
 
     pipeline_registry: WindowPipelineRegistry,
-    window_size_uniform: wgpu::Buffer,
+    // window_size_uniform: wgpu::Buffer,
 }
 
 impl WindowTexture {
@@ -85,11 +83,11 @@ impl WindowTexture {
         let size = renderer.size();
 
         Self {
-            sampler,
-            texture,
+            // sampler,
+            // texture,
             pipeline_registry,
-            window_size_uniform,
-            back_texture,
+            // window_size_uniform,
+            // back_texture,
             texture_view,
             back_texture_view,
             pixels_per_point,
